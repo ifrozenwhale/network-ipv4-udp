@@ -130,7 +130,7 @@
 
 2. 长消息（分片，MTU设置为44，即有效数据长度为44-20=24）
 
-   ![image-20201226131246044](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226131246044.png)
+   ![image-20201226131246044](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226131246044.png)
 
    `My name is Tian Runze, and who are you? `长度为41，被分为3片。在最后一片中被正确的组装。
 
