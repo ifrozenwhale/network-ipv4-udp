@@ -1,0 +1,59 @@
+commit 2a372c40b37512d502323b3c694d748e2d92cc61
+Author: Tian runze <frozenwhale@yoga-whale.localdomain>
+Date:   Sat Dec 26 14:21:41 2020 +0800
+
+    日常完善
+
+commit b1ec56443a27f4f01bce905003a02779ab8e5227
+Author: Tian runze <frozenwhale@yoga-whale.localdomain>
+Date:   Sat Dec 26 11:48:00 2020 +0800
+
+    处理了IP分片细节，使用8字节作为偏移单位
+
+commit 70a2490449ace12aab324f03b12a95a975dc533b
+Author: Tian runze <frozenwhale@yoga-whale.localdomain>
+Date:   Sat Dec 26 11:01:31 2020 +0800
+
+    完善了协议号规范
+
+commit b13385b5524343bf487d47e15e94afcb71a44bfb
+Author: Tian runze <frozenwhale@yoga-whale.localdomain>
+Date:   Fri Dec 25 18:03:37 2020 +0800
+
+    整理了代码结构和注释
+
+commit 5b3c049ea13f0d0cd120c2f2727eb2fa9e6f75b5
+Author: Tian runze <frozenwhale@yoga-whale.localdomain>
+Date:   Mon Dec 21 16:45:38 2020 +0800
+
+    完成了多线程双向通信，但是解析的函数封装不够清晰
+
+commit cd3d413ff52eb988c424ac26c8a761283b653505
+Author: Tian runze <frozenwhale@yoga-whale.localdomain>
+Date:   Mon Dec 21 14:50:08 2020 +0800
+
+    修改了字符串拷贝的bug，在分片的最后一片数据末尾加'\0'表示结束。
+
+commit 254a7b8dba1ead8956966c1058f965a21f7f4e3a
+Author: Tian runze <frozenwhale@yoga-whale.localdomain>
+Date:   Sat Dec 5 01:52:40 2020 +0800
+
+    修正了ip checksum前check非0导致的bug
+
+commit 27c0a7fd2afccdb93469d081b57cddf745e5052c
+Author: Tian runze <frozenwhale@yoga-whale.localdomain>
+Date:   Sat Dec 5 01:31:30 2020 +0800
+
+    完成了ip分片和重组，但是ip的checksum有bug。
+
+commit b66c09eeb5567efe0c73945b910ae982f76bf816
+Author: Tian runze <frozenwhale@yoga-whale.localdomain>
+Date:   Fri Dec 4 01:45:15 2020 +0800
+
+    完成了udp的头校验，完善了代码规范
+
+commit 62ad5b7bf3423cf9f472a495f0c010cb7ee4e6ab
+Author: Tian runze <frozenwhale@yoga-whale.localdomain>
+Date:   Thu Dec 3 20:03:18 2020 +0800
+
+    完成了基本的eth、ip、udp封装和解析，没有做ip分片和udp check
