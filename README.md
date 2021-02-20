@@ -110,11 +110,11 @@
 
 1. 分别在两个终端执行上述命令，启动程序
 
-   ![image-20201226130034525](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226130034525.png)
+   ![image-20201226130034525](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226130034525.png)
 
 2. 两个终端互发消息，如下：
 
-   ![image-20201226130341408](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226130341408.png)
+   ![image-20201226130341408](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226130341408.png)
 
 
 
@@ -126,7 +126,7 @@
 
 1. 短消息互发（不分片）
 
-   ![image-20201226131056879](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226131056879.png)
+   ![image-20201226131056879](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226131056879.png)
 
 2. 长消息（分片，MTU设置为44，即有效数据长度为44-20=24）
 
@@ -136,7 +136,7 @@
 
    回复消息，`Wow, I am Tian Runze, too!hhh`，长度为31，被分为2片，最后一片被正确组装打印出来。
 
-   ![image-20201226131735408](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226131735408.png)
+   ![image-20201226131735408](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226131735408.png)
 
 ## 抓包测试
 
@@ -146,13 +146,13 @@
 
 1. 短消息
 
-   ![image-20201226132414865](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226132414865.png)
+   ![image-20201226132414865](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226132414865.png)
 
    被正确的解析为UDP协议
 
 2. 长消息，被分为3片，且成功被wireshark解析到。
 
-   ![image-20201226132758462](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226132758462.png)
+   ![image-20201226132758462](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226132758462.png)
 
 
 
@@ -174,11 +174,11 @@
    }
    ```
 
-   ![image-20201226135934272](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226135934272.png)
+   ![image-20201226135934272](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226135934272.png)
 
 2. 过滤掉发往非本机MAC的帧，发现仍有部分帧，但是这些帧的FCS校验错误。（没有具体探讨原因，程序运行在windows的子系统linux内核中，不清楚这些帧的来源和结构、协议）
 
-   ![image-20201226140122349](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226140122349.png)
+   ![image-20201226140122349](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226140122349.png)
 
 3. 因此，实际检测自己的封装和解析的时候，通过自定义了protocol类型来过滤。这里使用学号的尾号4376来进行过滤。只监听自己实现的封装的帧。
 
@@ -190,19 +190,19 @@
 
 修改`myhdr.h`中的宏定义`ERROR_TAKEN`为1，即可强制MAC帧出错。
 
-![image-20201226140937442](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226140937442.png)
+![image-20201226140937442](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226140937442.png)
 
 ### IP packet 出错
 
 为了检测IP的校验和，修改`myhdr.h`中的宏定义`ERROR_TAKEN`为2，即可强制IP packet出错（但是此时MAC帧也是错的），这里仅为了测试，MAC帧出错时忽略（以模拟帧FCS没有校验出错误的情况）。
 
-![image-20201226141728968](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226141728968.png)
+![image-20201226141728968](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226141728968.png)
 
 ### UDP Datagram 出错
 
 为了检测UDP的校验和，修改`myhdr.h`中的宏定义`ERROR_TAKEN`为2，即可强制UDP datagram出错（但是此时MAC帧也是错的），这里仅为了测试，MAC帧出错时忽略（以模拟帧FCS没有校验出错误的情况）。
 
-![image-20201226142036807](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226142036807.png)
+![image-20201226142036807](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226142036807.png)
 
 以上，所有的功能和测试均实现。
 
@@ -212,4 +212,4 @@
 
 使用了git进行版本管理，从帧的封装开始，到IP封装、UDP封装，然后做UDP的校验，IP分片重组，最后做多线程的聊天应用。
 
-![image-20201226143057640](C:\Users\frozenwhale\AppData\Roaming\Typora\typora-user-images\image-20201226143057640.png)
+![image-20201226143057640](https://frozenwhale.oss-cn-beijing.aliyuncs.com/img/image-20201226143057640.png)
