@@ -3,7 +3,7 @@
  * @major 计算机科学与技术卓越
  * @course 计算机网络
  * @file client.c 发送端
- * 使用raw socket 进行应用展示
+ * 使用raw socket 进行frame封装、IP封装、分片、重组，UDP封装
 
  */
 #include <arpa/inet.h>
@@ -44,7 +44,7 @@ struct myiphdr {
 */
 mac_addr my_mac;  // 本机MAC地址
 // mac_addr dst_mac = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};  // 广播src MAC地址
-mac_addr dst_mac = {0x00, 0x15, 0x5d, 0xda, 0x50, 0x66};  // dst MAC 地址
+mac_addr dst_mac = {0x00, 0x15, 0x5d, 0x97, 0xC1, 0x6a};  // dst MAC 地址
 int sock_raw_fd;
 struct sockaddr_ll sll_send;           // the send socket address structure
 struct sockaddr_ll sll_recv;           // the recv socket address structure
@@ -209,6 +209,8 @@ void send_to_datalink_layer(char data[], int data_len, int error) {
 
     if (len == -1) {
         perror("sendto");
+    } else {
+        printf("[SUCCESS] send %d size data\n\n", frame_size);
     }
 }
 
@@ -271,7 +273,7 @@ void send_to_network_layer(uchar protocal, uint payload_len, uchar *payload) {
 
             } else {
                 iphdr.frag_off = iphdr.frag_off & 0xDFFF;  // more frag = 0
-
+                // printf("last frag off %x\n", iphdr.frag_off);
                 memcpy(ip_packet + sizeof(iphdr), payload + i * each_size,
                        each_size + left);
             }
@@ -281,6 +283,7 @@ void send_to_network_layer(uchar protocal, uint payload_len, uchar *payload) {
             iphdr.check = csum((ushort *)&iphdr, sizeof(iphdr));
             memcpy(ip_packet, &iphdr, sizeof(iphdr));
 
+            // printf("frag off %x\n", iphdr.frag_off);
             send_to_datalink_layer(ip_packet, ntohs(iphdr.tot_len),
                                    ERROR_TAKEN);
         }
@@ -320,6 +323,8 @@ void send_to_tansport_layer(ushort sport, ushort dport, char *payload,
     char udp_datagram[MAX_IP_PACKET_LEN];
     make_udphdr(sport, dport, payload_len, &hdr);
 
+    // check_udp();
+    // printf("%d\n", sizeof(hdr));
     memcpy(udp_datagram, &hdr, sizeof(hdr));
     memcpy(udp_datagram + sizeof(hdr), payload, payload_len);
     // memcpy(udp_datagram + sizeof(hdr), payload, payload_len);
@@ -329,7 +334,7 @@ void send_to_tansport_layer(ushort sport, ushort dport, char *payload,
     hdr.check = calc_check_udphdr(udp_datagram, udplen, srcip, dstip);
     // 更新udp头的check
     memcpy(udp_datagram, &hdr, sizeof(hdr));
-
+    // printf("udphdr check: %x\n", hdr.check);
     send_to_network_layer(UDP_PROTOCAL, udplen, udp_datagram);
 }
 
@@ -411,10 +416,11 @@ void read_from_network_layer(int nbyte, char *packet, struct myiphdr *iniphdr,
             frame_index);
         return;
     }
-
+    printf("[UDP]    source port %u | dest port %u\n", ntohs(inudphdr.sport),
+           ntohs(inudphdr.dport));
     // printf("UDP len: %d\n", ntohs(inudphdr.len));
     strcpy(data, &udp_datagram[UDP_HDR_LEN]);
-    printf("[RECV]   %s", data);
+    printf("[DATA]   %s\n", data);
 }
 
 /**
@@ -482,6 +488,14 @@ int read_from_datalink_layer(char packet[], int nbyte) {
         return -1;
     }
     iniphdr.tot_len = ntohs(iniphdr.tot_len);
+    printf(
+        "[IP]     from %s to %s | version %u | ihl %2u | tos %u | total "
+        "len "
+        "%4u | id %6u | "
+        "ttl %4u | protocal %2u | check %x\n",
+        srcip_c, dstip_c, iniphdr.version, iniphdr.ihl, iniphdr.tos,
+        (iniphdr.tot_len), iniphdr.id, iniphdr.ttl, iniphdr.protocol,
+        iniphdr.check);
 
     // 检查是否分片
     iniphdr.frag_off = ntohs(iniphdr.frag_off);
@@ -496,6 +510,9 @@ int read_from_datalink_layer(char packet[], int nbyte) {
         int isfirst = !islast && !addroff;
         // printf("addr off: %x\n", addroff);
         if (isfirst) {
+            printf("\n(first fragment)\n");
+            printf("----------------------------------------------\n");
+
             ip_packet_id = iniphdr.id;
             memcpy(store, packet, iniphdr.tot_len);
             first_iphdr = &iniphdr;
@@ -520,7 +537,8 @@ int read_from_datalink_layer(char packet[], int nbyte) {
             first_iphdr = NULL;
             bzero(store, sizeof(store));
             total_byte = MAC_FCS_LEN + MAC_HDR_LEN;
-
+            printf("\n(last fragment)\n");
+            printf("----------------------------------------------\n");
         } else if (ip_packet_id == iniphdr.id) {
             memcpy(store + IP_HDR_LEN + addroff, packet + IP_HDR_LEN,
                    iniphdr.tot_len - IP_HDR_LEN);
@@ -573,6 +591,7 @@ void recv_data() {
 
         // 更新帧号
         frame_index++;
+        printf("\n");
 
         // 解析MAC帧的内容
 
@@ -581,6 +600,13 @@ void recv_data() {
         int check_res = frame_crc_check(cas_rec, buffer_in, nbyte);
         // 如果checksum出错，丢弃该帧
         if (check_res == -1) continue;
+
+        // 输出MAC帧信息
+        printf(
+            "[MAC]    from MAC %02X:%02X:%02X:%02X:%02X:%02x | mac protocal %x "
+            "| receive %d byte data\n",
+            src_mac[0], src_mac[1], src_mac[2], src_mac[3], src_mac[4],
+            src_mac[5], ntohs(protocal), nbyte);
 
         // 解析IP包
 
