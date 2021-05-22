@@ -3,7 +3,21 @@
 #include <ctype.h>
 
 #include "stdio.h"
+char *int_to_binary(int n) {
+    static char str[100] = "";
+    int temp;
+    temp = n % 2;
+    n = n >> 1;
 
+    if (n != 0) {
+        int_to_binary(n);
+    }
+    char num_str[2];               //字符串
+    sprintf(num_str, "%d", temp);  //数字转字符串
+    strcat(str, num_str);
+
+    return str;
+}
 /**
  * checking algorithm  - crc32
  * refer to the network

@@ -343,7 +343,7 @@ void send_to_tansport_layer(ushort sport, ushort dport, char *payload,
     // 更新udp头的check
     memcpy(udp_datagram, &hdr, sizeof(hdr));
     // printf("udphdr check: %x\n", hdr.check);
-    printf("[DEBUG] send udp: %s\n", udp_datagram + 8);
+    // printf("[DEBUG] send udp: %s\n", udp_datagram + 8);
     send_to_network_layer(UDP_PROTOCAL, udplen, udp_datagram);
 }
 
@@ -416,7 +416,7 @@ void read_from_network_layer(int nbyte, char *packet, struct myiphdr *iniphdr,
 
     memcpy(&inudphdr, &udp_datagram, 8);
     // 先进行udp的检验
-    printf("[DEBUG] recv udp: %s\n", udp_datagram + 8);
+    // printf("[DEBUG] recv udp: %s\n", udp_datagram + 8);
     ushort udphdr_eror = calc_check_udphdr(udp_datagram, ntohs(inudphdr.len),
                                            iniphdr->saddr, iniphdr->daddr);
     if (udphdr_eror) {
@@ -497,26 +497,25 @@ int read_from_datalink_layer(char packet[], int nbyte) {
             frame_index);
         return -1;
     }
-    iniphdr.tot_len = ntohs(iniphdr.tot_len);
+    ushort tot_len = ntohs(iniphdr.tot_len);
     printf(
         "[IP]     from %s to %s | version %u | ihl %2u | tos %u | total "
         "len "
         "%4u | id %6u | "
         "ttl %4u | protocal %2u | check %x\n",
-        srcip_c, dstip_c, iniphdr.version, iniphdr.ihl, iniphdr.tos,
-        (iniphdr.tot_len), iniphdr.id, iniphdr.ttl, iniphdr.protocol,
-        iniphdr.check);
+        srcip_c, dstip_c, iniphdr.version, iniphdr.ihl, iniphdr.tos, (tot_len),
+        iniphdr.id, iniphdr.ttl, iniphdr.protocol, iniphdr.check);
 
     // 检查是否分片
-    iniphdr.frag_off = ntohs(iniphdr.frag_off);
-    if ((iniphdr.frag_off & 0x2000) || iniphdr.frag_off) {
+    ushort frag_off = ntohs(iniphdr.frag_off);
+    if ((frag_off & 0x2000) || frag_off) {
         // 如果more frag 或者 frag 0ff 表示分片
         // 1. MF=1 and no offset 第一片
         // 2. MF=0 最后一片
         // 3. 其余情况 中间片
 
-        int islast = !((iniphdr.frag_off & 0x2000) >> 13);
-        ushort addroff = 8 * (iniphdr.frag_off & 0x1FFF);
+        int islast = !((frag_off & 0x2000) >> 13);
+        ushort addroff = 8 * (frag_off & 0x1FFF);
         int isfirst = !islast && !addroff;
         // printf("addr off: %x\n", addroff);
         if (isfirst) {
@@ -524,9 +523,9 @@ int read_from_datalink_layer(char packet[], int nbyte) {
             printf("----------------------------------------------\n");
 
             ip_packet_id = iniphdr.id;
-            memcpy(store, packet, iniphdr.tot_len);
+            memcpy(store, packet, tot_len);
             first_iphdr = &iniphdr;
-            total_byte += iniphdr.tot_len;
+            total_byte += tot_len;
 
             // DEBUG UDP LEN
             struct myudphdr u;
@@ -535,9 +534,9 @@ int read_from_datalink_layer(char packet[], int nbyte) {
 
         } else if (islast) {
             memcpy(store + IP_HDR_LEN + addroff, packet + IP_HDR_LEN,
-                   iniphdr.tot_len - IP_HDR_LEN);
+                   tot_len - IP_HDR_LEN);
 
-            total_byte += iniphdr.tot_len - IP_HDR_LEN;
+            total_byte += tot_len - IP_HDR_LEN;
             // 进行重组
 
             read_from_network_layer(total_byte, store, first_iphdr,
@@ -551,8 +550,8 @@ int read_from_datalink_layer(char packet[], int nbyte) {
             printf("----------------------------------------------\n");
         } else if (ip_packet_id == iniphdr.id) {
             memcpy(store + IP_HDR_LEN + addroff, packet + IP_HDR_LEN,
-                   iniphdr.tot_len - IP_HDR_LEN);
-            total_byte += iniphdr.tot_len - IP_HDR_LEN;
+                   tot_len - IP_HDR_LEN);
+            total_byte += tot_len - IP_HDR_LEN;
         }
     } else {
         read_from_network_layer(nbyte, packet, &iniphdr, frame_index);

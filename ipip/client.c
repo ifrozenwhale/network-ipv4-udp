@@ -10,6 +10,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <malloc.h>
+#include <math.h>
 #include <net/if.h>            // struct ifreq
 #include <netinet/ether.h>     // ETH_P_ALL
 #include <netpacket/packet.h>  // struct sockaddr_ll
@@ -269,7 +270,7 @@ void send_to_network_layer(uchar protocal, uint payload_len, uchar *payload) {
             iphdr.tot_len = htons(more_frag ? MTU : last_frag_len + IP_HDR_LEN);
             // calc frag off
             // 这里使用8个字节作为偏移单位，要求每个分片的长度是8字节的整数倍
-            iphdr.frag_off = i * each_size / 8;
+            iphdr.frag_off = ceil(i * each_size / 8);
             // set tag 1
             iphdr.frag_off = iphdr.frag_off | 0x2000;
 
@@ -285,11 +286,13 @@ void send_to_network_layer(uchar protocal, uint payload_len, uchar *payload) {
             }
             // iphdr.frag_off = htons(iphdr.frag_off);
             iphdr.check = 0;
+            // printf("frag_off: %x\n", iphdr.frag_off);
             iphdr.frag_off = htons(iphdr.frag_off);
+            // printf("frag_off: %x\n", iphdr.frag_off);
             iphdr.check = csum((ushort *)&iphdr, sizeof(iphdr));
             memcpy(ip_packet, &iphdr, sizeof(iphdr));
 
-            // printf("frag off %x\n", iphdr.frag_off);
+            // printf("frag off %x\n", htons(iphdr.frag_off));
 
             send_to_datalink_layer(ip_packet, ntohs(iphdr.tot_len),
                                    ERROR_TAKEN);
@@ -342,7 +345,7 @@ void send_to_tansport_layer(ushort sport, ushort dport, char *payload,
     // 更新udp头的check
     memcpy(udp_datagram, &hdr, sizeof(hdr));
     // printf("udphdr check: %x\n", hdr.check);
-    printf("[DEBUG] send udp: %s\n", udp_datagram + 8);
+    // printf("[DEBUG] send udp: %s\n", udp_datagram + 8);
     send_to_network_layer(UDP_PROTOCAL, udplen, udp_datagram);
 }
 
@@ -415,7 +418,7 @@ void read_from_network_layer(int nbyte, char *packet, struct myiphdr *iniphdr,
 
     memcpy(&inudphdr, &udp_datagram, 8);
     // 先进行udp的检验
-    printf("[DEBUG] recv udp: %s\n", udp_datagram + 8);
+    // printf("[DEBUG] recv udp: %s\n", udp_datagram + 8);
     ushort udphdr_eror = calc_check_udphdr(udp_datagram, ntohs(inudphdr.len),
                                            iniphdr->saddr, iniphdr->daddr);
     if (udphdr_eror) {
@@ -507,15 +510,15 @@ int read_from_datalink_layer(char packet[], int nbyte) {
         iniphdr.check);
 
     // 检查是否分片
-    iniphdr.frag_off = ntohs(iniphdr.frag_off);
-    if ((iniphdr.frag_off & 0x2000) || iniphdr.frag_off) {
+    ushort frag_off = ntohs(iniphdr.frag_off);
+    if ((frag_off & 0x2000) || iniphdr.frag_off) {
         // 如果more frag 或者 frag 0ff 表示分片
         // 1. MF=1 and no offset 第一片
         // 2. MF=0 最后一片
         // 3. 其余情况 中间片
 
-        int islast = !((iniphdr.frag_off & 0x2000) >> 13);
-        ushort addroff = 8 * (iniphdr.frag_off & 0x1FFF);
+        int islast = !((frag_off & 0x2000) >> 13);
+        ushort addroff = 8 * (frag_off & 0x1FFF);
         int isfirst = !islast && !addroff;
         // printf("addr off: %x\n", addroff);
         if (isfirst) {

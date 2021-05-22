@@ -6,11 +6,11 @@
  * 使用raw socket 进行frame封装、IP封装、分片、重组，UDP封装
 
  */
-
 #include <arpa/inet.h>
 #include <assert.h>
 #include <ctype.h>
 #include <malloc.h>
+#include <math.h>
 #include <net/if.h>            // struct ifreq
 #include <netinet/ether.h>     // ETH_P_ALL
 #include <netpacket/packet.h>  // struct sockaddr_ll
@@ -38,8 +38,8 @@ struct sockaddr_ll sll_send;  // the send socket address structure
 struct sockaddr_ll sll_recv;  // the recv socket address structure
 ipaddr dstip, srcip;          // src IP, dst IP
 ipaddr tunnel_srcip, tunnel_dstip;
-char myipaddr_c[] = "172.18.170.189";  // 本机IP地址
-
+char tunnel_myipaddr_c[] = "192.168.0.1";  // 本机IP地址
+char tunnel_dstip_c[] = "192.168.1.1";
 typedef unsigned char checknum[4];           // checknum 字符数组
 int frame_index;                             // frame index
 char store[MAX_IP_PACKET_LEN];               // 用于存储分片的IP packet
@@ -67,8 +67,7 @@ void recv_data();
 void send_thread();  // 发线程
 void recv_thread();  // 发线程
 
-int read_from_datalink_layer(char packet[], int nbyte, mac_addr dmac,
-                             mac_addr smac);  // 从数据链路层读
+int read_from_datalink_layer(char packet[], int nbyte);  // 从数据链路层读
 int frame_crc_check(uint cas_rec, char buffer_in[], int nbyte);  // Frame check
 
 /**
@@ -152,7 +151,7 @@ void output_frame(char *frame, int frame_size) {
     int cnt = frame_size;
     int t = 0;
     while (cnt > 1) {
-        if (cnt > 4 && t >= 14 + 40 + 8)
+        if (cnt > 4 && t >= 14 + 20 + 8)
             printf("%c", *p++);
         else
             printf("%2hhx ", *p++);
@@ -441,14 +440,12 @@ void make_ipip_tunnel(uchar protocal, uint payload_len, uchar *payload,
     iphdr.tos = 0;
     iphdr.tot_len =
         htons(payload_len + (iphdr.ihl << 2));  // 这里是20个字节的固定长度
-    // printf("tot_len %d\n", ntohs(iphdr.tot_len));
     iphdr.id = rand() % 10000;
     iphdr.frag_off = 0;
     iphdr.ttl = 128;
     iphdr.protocol = protocal;
     // The IP address of the decapsulator, that is,the tunnel exit point.
     iphdr.daddr = tunnel_dstip;
-    // printf("ip %x\n", tunnel_dstip);
     // The IP address of the encapsulator, that is, the tunnel entrypoint.
     iphdr.saddr = tunnel_srcip;
 
@@ -464,18 +461,19 @@ void make_ipip_tunnel(uchar protocal, uint payload_len, uchar *payload,
     header; if the "Don’t Fragment" bit is not set in the inner IP header, it
     MAY be set in the outer IP header, as described in Section 5.1.
      */
-    if (dont_frag || payload_len + (iphdr.ihl << 2) <= MTU) {
+    // printf("payload_len:%d\n", payload_len);
+    if (dont_frag || payload_len + IP_HDR_LEN <= MTU) {
         if (dont_frag) {
-            iphdr.frag_off =
-                iphdr.frag_off | 0x4000;  // set dont fragment flag=1
+            ushort frag_off = ntohs(iphdr.frag_off);
+            iphdr.frag_off = frag_off | 0x4000;  // set dont fragment flag=1
             iphdr.frag_off = htons(iphdr.frag_off);
-            printf("[DEBUG] fragoff %x\n", iphdr.frag_off);
+
+            // printf("[DEBUG] fragoff %x\n", frag_off | 0x4000);
         }
 
         iphdr.check = csum((ushort *)&iphdr, sizeof(iphdr));
         memcpy(ip_packet, &iphdr, sizeof(iphdr));
         memcpy(ip_packet + sizeof(iphdr), payload, payload_len);
-        // printf("payloadlen: %d\n", payload_len);
         send_to_datalink_layer(ip_packet, ntohs(iphdr.tot_len), ERROR_TAKEN);
     } else {
         // 首先确定需要分几片
@@ -494,7 +492,7 @@ void make_ipip_tunnel(uchar protocal, uint payload_len, uchar *payload,
             iphdr.tot_len = htons(more_frag ? MTU : last_frag_len + IP_HDR_LEN);
             // calc frag off
             // 这里使用8个字节作为偏移单位，要求每个分片的长度是8字节的整数倍
-            iphdr.frag_off = i * each_size / 8;
+            iphdr.frag_off = ceil(i * each_size / 8);
             // set tag 1
             iphdr.frag_off = iphdr.frag_off | 0x2000;
 
@@ -523,9 +521,8 @@ void make_ipip_tunnel(uchar protocal, uint payload_len, uchar *payload,
 }
 void unpack_ipip_tunnal(int nbyte, char *packet, struct myiphdr *iniphdr,
                         int frame_index) {
-    // 检查是否分片
-    send_to_datalink_layer(packet, (iniphdr->tot_len - (iniphdr->ihl << 2)),
-                           ERROR_TAKEN);
+    send_to_datalink_layer(
+        packet, (ntohs(iniphdr->tot_len) - (iniphdr->ihl << 2)), ERROR_TAKEN);
 }
 /**
  * 从数据链路层读取数据
@@ -533,8 +530,7 @@ void unpack_ipip_tunnal(int nbyte, char *packet, struct myiphdr *iniphdr,
  * @param nbyte 字节数
  * @return -1表示IP头校验失败
  */
-int read_from_datalink_layer(char packet[], int nbyte, mac_addr dmac,
-                             mac_addr smac) {
+int read_from_datalink_layer(char packet[], int nbyte) {
     struct myiphdr iniphdr;
     ipaddr inipaddr;
     memcpy(&iniphdr, packet, IP_HDR_LEN);
@@ -553,22 +549,23 @@ int read_from_datalink_layer(char packet[], int nbyte, mac_addr dmac,
             frame_index);
         return -1;
     }
-    iniphdr.tot_len = ntohs(iniphdr.tot_len);
+    ushort hs_tot_len = ntohs(iniphdr.tot_len);
     printf(
         "[IP]     from %s to %s | version %u | ihl %2u | tos %u | total "
         "len "
         "%4u | id %6u | "
         "ttl %4u | protocal %2u | check %x\n",
-        srcip_c, dstip_c, iniphdr.version, iniphdr.ihl, iniphdr.tos,
-        (iniphdr.tot_len), iniphdr.id, iniphdr.ttl, iniphdr.protocol,
-        iniphdr.check);
+        srcip_c, dstip_c, iniphdr.version, iniphdr.ihl, iniphdr.tos, hs_tot_len,
+        iniphdr.id, iniphdr.ttl, iniphdr.protocol, iniphdr.check);
 
     // read_from_network_layer(nbyte, packet, &iniphdr, frame_index);
     // 进行 ip in ip tunnel 封装
 
     // read_from_network_layer(nbyte, packet, &iniphdr, frame_index);
-    iniphdr.frag_off = ntohs(iniphdr.frag_off);
-    int dont_frag = iniphdr.frag_off & 0x2000;
+    ushort hs_frag_off = ntohs(iniphdr.frag_off);
+    printf("hs_frag_off: %x\n", hs_frag_off);
+    int dont_frag = hs_frag_off & 0x4000;
+
     /**
      * @brief
      * 边界设备在收到从IPv6网络侧发来的报文后，如果报文的目的地址不是自身且下一跳出接口为Tunnel接口
@@ -581,56 +578,32 @@ int read_from_datalink_layer(char packet[], int nbyte, mac_addr dmac,
      * 文后，进行隧道解封装。并将解封装后的报文交给IPv6协议栈处理。
      */
 
-    /**
-     *
-     * @brief 判断数据包来向和去向，当满足以下条件时，封装 ipip 进行转发
-     * 1. 如果 mac 地址和本机 mac 地址匹配
-     * 2. 如果 源 ip 位于 自己所在的子网
-     * 3. 如果 目的 ip 位于 对端所在的子网
-     *
-     * 由于这里只是演示 ipip tunnel，因此作出简化，假设场景如下：
-     * PC1，PC2，PC3，PC4，其中 PC1、R1 位于子网 A，PC2、R2位于 子网 B、
-     * 只模拟PC1 发送到 PC2 的数据包，即只模拟跨子网的数据传输，且规定协议如下：
-     * 认为一个子网内的 ip-version 是 5
-     * 但是两个子网之间依赖于 ip-version 4
-     * 因此，通过判断 ip-version，如果是5，就进行 ipip 封装转发到另一个子网
-     * 否则就认为是接收到另一个子网的数据包，进行 ipip 解封装
-     *
-     */
-
-    if (iniphdr.version == 5 && mac_equal(dmac, my_mac) &&
-        ((iniphdr.saddr & ipstr2addr(left_net_mask)) ==
-         ipstr2addr(left_net_ip)) &&
-        ((iniphdr.daddr & ipstr2addr(right_net_mask)) ==
-         ipstr2addr(right_net_ip))) {
+    if (iniphdr.version == 5) {
         // tunnel
-        make_ipip_tunnel(MY_IP_PROTOCAL, iniphdr.tot_len, packet, dont_frag);
-    } else if (iniphdr.version == 4 && mac_equal(dmac, my_mac) &&
-               ((iniphdr.saddr & ipstr2addr(right_net_mask)) ==
-                ipstr2addr(right_net_ip)) &&
-               ((iniphdr.daddr & ipstr2addr(left_net_mask)) ==
-                ipstr2addr(left_net_ip))) {
+        make_ipip_tunnel(MY_IP_PROTOCAL, hs_tot_len, packet, dont_frag);
+    } else {
         // 如果是ipv4，进行解包成ipv6，这里不做双协议栈，只做ipv6
-        iniphdr.frag_off = ntohs(iniphdr.frag_off);
-
-        if ((iniphdr.frag_off & 0x2000) || iniphdr.frag_off) {
+        hs_tot_len = ntohs(iniphdr.tot_len);
+        if ((hs_frag_off & 0x2000) || hs_frag_off) {
             // 如果more frag 或者 frag 0ff 表示分片
             // 1. MF=1 and no offset 第一片
             // 2. MF=0 最后一片
             // 3. 其余情况 中间片
 
-            int islast = !((iniphdr.frag_off & 0x2000) >> 13);
-            ushort addroff = 8 * (iniphdr.frag_off & 0x1FFF);
+            int islast = !((hs_frag_off & 0x2000) >> 13);
+
+            ushort addroff = 8 * (hs_frag_off & 0x1FFF);
             int isfirst = !islast && !addroff;
-            // printf("addr off: %x\n", addroff);
+            printf("fragoff: %x, hs_frag_off: %x islast %x addroff %x\n",
+                   iniphdr.frag_off, hs_frag_off, islast, addroff);
             if (isfirst) {
                 printf("\n(first fragment)\n");
                 printf("----------------------------------------------\n");
 
                 ip_packet_id = iniphdr.id;
-                memcpy(store, packet, iniphdr.tot_len);
+                memcpy(store, packet, hs_tot_len);
                 first_iphdr = &iniphdr;
-                total_byte += iniphdr.tot_len;
+                total_byte += hs_tot_len;
 
                 // DEBUG UDP LEN
                 struct myudphdr u;
@@ -639,9 +612,9 @@ int read_from_datalink_layer(char packet[], int nbyte, mac_addr dmac,
 
             } else if (islast) {
                 memcpy(store + IP_HDR_LEN + addroff, packet + IP_HDR_LEN,
-                       iniphdr.tot_len - IP_HDR_LEN);
+                       hs_tot_len - IP_HDR_LEN);
 
-                total_byte += iniphdr.tot_len - IP_HDR_LEN;
+                total_byte += hs_tot_len - IP_HDR_LEN;
                 // 进行重组
 
                 // read_from_network_layer(total_byte, store,
@@ -656,13 +629,13 @@ int read_from_datalink_layer(char packet[], int nbyte, mac_addr dmac,
                 printf("----------------------------------------------\n");
             } else if (ip_packet_id == iniphdr.id) {
                 memcpy(store + IP_HDR_LEN + addroff, packet + IP_HDR_LEN,
-                       iniphdr.tot_len - IP_HDR_LEN);
-                total_byte += iniphdr.tot_len - IP_HDR_LEN;
+                       hs_tot_len - IP_HDR_LEN);
+                total_byte += hs_tot_len - IP_HDR_LEN;
             }
         } else {
-            unpack_ipip_tunnal(nbyte, packet, &iniphdr, frame_index);
-            // read_from_network_layer(nbyte, packet, &iniphdr,
-            // frame_index);
+            unpack_ipip_tunnal(nbyte, packet + IP_HDR_LEN, &iniphdr,
+                               frame_index);
+            // read_from_network_layer(nbyte, packet, &iniphdr, frame_index);
         }
 
         // send_to_network_layer(IP_PROTOCAL, ipip_len, packet);
@@ -690,6 +663,7 @@ void recv_data() {
             continue;
         }
         ushort protocal;  // protocal type
+
         // 解析mac帧
         memcpy(&dst_mac, &buffer_in, 6);       // get dst addr
         memcpy(&src_mac, &buffer_in[6], 6);    // get src addr
@@ -735,7 +709,7 @@ void recv_data() {
         memcpy(packet, &buffer_in[MAC_HDR_LEN],
                nbyte - MAC_FCS_LEN - MAC_HDR_LEN);
 
-        read_from_datalink_layer(packet, nbyte, dst_mac, src_mac);
+        read_from_datalink_layer(packet, nbyte);
     }
 }
 /**
@@ -793,10 +767,9 @@ int main(int argc, char *argv[]) {
     }
     // init ip config
 
-    char tunnel_dstip_c[] = "172.17.0.5";
     // let
     tunnel_dstip = ipstr2addr(tunnel_dstip_c);
-    tunnel_srcip = ipstr2addr(myipaddr_c);
+    tunnel_srcip = ipstr2addr(tunnel_myipaddr_c);
 
     // 启动多线程
     pthread_t send_id, recv_id;

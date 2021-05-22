@@ -18,7 +18,7 @@ typedef uchar checknum[4];
 #define MY_ETH_PROTOCAL 0x4376  // 自定义协议号
 #define MY_IP_PROTOCAL 0x0001   // 自定义协议号
 // #define MTU 1460
-#define MTU 200                  // 为了测试，使用较小的MTU
+#define MTU 100                  // 为了测试，使用较小的MTU
 #define MAX_IP_PACKET_LEN 65536  // 最大的IP packet长度
 struct myiphdr {
     uchar ihl : 4, version : 4;
