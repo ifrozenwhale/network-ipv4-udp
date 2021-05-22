@@ -6,6 +6,7 @@
  * 使用raw socket 进行frame封装、IP封装、分片、重组，UDP封装
 
  */
+
 #include <arpa/inet.h>
 #include <assert.h>
 #include <ctype.h>
@@ -23,6 +24,7 @@
 #include <time.h>    // time()
 #include <unistd.h>  // close
 
+#include "config.h"
 #include "myhdr.h"
 #include "utils.h"
 
@@ -65,7 +67,8 @@ void recv_data();
 void send_thread();  // 发线程
 void recv_thread();  // 发线程
 
-int read_from_datalink_layer(char packet[], int nbyte);  // 从数据链路层读
+int read_from_datalink_layer(char packet[], int nbyte, mac_addr dmac,
+                             mac_addr smac);  // 从数据链路层读
 int frame_crc_check(uint cas_rec, char buffer_in[], int nbyte);  // Frame check
 
 /**
@@ -530,7 +533,8 @@ void unpack_ipip_tunnal(int nbyte, char *packet, struct myiphdr *iniphdr,
  * @param nbyte 字节数
  * @return -1表示IP头校验失败
  */
-int read_from_datalink_layer(char packet[], int nbyte) {
+int read_from_datalink_layer(char packet[], int nbyte, mac_addr dmac,
+                             mac_addr smac) {
     struct myiphdr iniphdr;
     ipaddr inipaddr;
     memcpy(&iniphdr, packet, IP_HDR_LEN);
@@ -577,10 +581,35 @@ int read_from_datalink_layer(char packet[], int nbyte) {
      * 文后，进行隧道解封装。并将解封装后的报文交给IPv6协议栈处理。
      */
 
-    if (iniphdr.version == 5) {
+    /**
+     *
+     * @brief 判断数据包来向和去向，当满足以下条件时，封装 ipip 进行转发
+     * 1. 如果 mac 地址和本机 mac 地址匹配
+     * 2. 如果 源 ip 位于 自己所在的子网
+     * 3. 如果 目的 ip 位于 对端所在的子网
+     *
+     * 由于这里只是演示 ipip tunnel，因此作出简化，假设场景如下：
+     * PC1，PC2，PC3，PC4，其中 PC1、R1 位于子网 A，PC2、R2位于 子网 B、
+     * 只模拟PC1 发送到 PC2 的数据包，即只模拟跨子网的数据传输，且规定协议如下：
+     * 认为一个子网内的 ip-version 是 5
+     * 但是两个子网之间依赖于 ip-version 4
+     * 因此，通过判断 ip-version，如果是5，就进行 ipip 封装转发到另一个子网
+     * 否则就认为是接收到另一个子网的数据包，进行 ipip 解封装
+     *
+     */
+
+    if (iniphdr.version == 5 && mac_equal(dmac, my_mac) &&
+        ((iniphdr.saddr & ipstr2addr(left_net_mask)) ==
+         ipstr2addr(left_net_ip)) &&
+        ((iniphdr.daddr & ipstr2addr(right_net_mask)) ==
+         ipstr2addr(right_net_ip))) {
         // tunnel
         make_ipip_tunnel(MY_IP_PROTOCAL, iniphdr.tot_len, packet, dont_frag);
-    } else {
+    } else if (iniphdr.version == 4 && mac_equal(dmac, my_mac) &&
+               ((iniphdr.saddr & ipstr2addr(right_net_mask)) ==
+                ipstr2addr(right_net_ip)) &&
+               ((iniphdr.daddr & ipstr2addr(left_net_mask)) ==
+                ipstr2addr(left_net_ip))) {
         // 如果是ipv4，进行解包成ipv6，这里不做双协议栈，只做ipv6
         iniphdr.frag_off = ntohs(iniphdr.frag_off);
 
@@ -632,7 +661,8 @@ int read_from_datalink_layer(char packet[], int nbyte) {
             }
         } else {
             unpack_ipip_tunnal(nbyte, packet, &iniphdr, frame_index);
-            // read_from_network_layer(nbyte, packet, &iniphdr, frame_index);
+            // read_from_network_layer(nbyte, packet, &iniphdr,
+            // frame_index);
         }
 
         // send_to_network_layer(IP_PROTOCAL, ipip_len, packet);
@@ -705,7 +735,7 @@ void recv_data() {
         memcpy(packet, &buffer_in[MAC_HDR_LEN],
                nbyte - MAC_FCS_LEN - MAC_HDR_LEN);
 
-        read_from_datalink_layer(packet, nbyte);
+        read_from_datalink_layer(packet, nbyte, dst_mac, src_mac);
     }
 }
 /**

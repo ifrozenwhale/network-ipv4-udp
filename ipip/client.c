@@ -45,13 +45,14 @@ struct myiphdr {
 mac_addr my_mac;  // 本机MAC地址
 // mac_addr dst_mac = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};  // 广播src MAC地址
 // mac_addr dst_mac = {0x00, 0x15, 0x5d, 0x9f, 0x6e, 0x25};  // dst MAC 地址
+// 假设直接指导了网关路由器的 mac 地址，指定 mac 地址进行发送，避免了第一次 arp
 mac_addr dst_mac = {0x10, 0x11, 0x12, 0x13, 0x14, 0x15};
 int sock_raw_fd;
-struct sockaddr_ll sll_send;           // the send socket address structure
-struct sockaddr_ll sll_recv;           // the recv socket address structure
-ipaddr dstip, srcip;                   // src IP, dst IP
-char myipaddr_c[] = "172.18.170.189";  // 本机IP地址
-
+struct sockaddr_ll sll_send;        // the send socket address structure
+struct sockaddr_ll sll_recv;        // the recv socket address structure
+ipaddr dstip, srcip;                // src IP, dst IP
+char myipaddr_c[] = "192.168.0.1";  // 本机IP地址
+char dstip_c[] = "192.168.1.1";
 typedef unsigned char checknum[4];           // checknum 字符数组
 int frame_index;                             // frame index
 char store[MAX_IP_PACKET_LEN];               // 用于存储分片的IP packet
@@ -637,6 +638,15 @@ void recv_thread() {
 
 int main(int argc, char *argv[]) {
     // init random seed (for random packet id)
+    // use -l to bind for specific interface
+    for (int i = 0; i < argc; i++)
+        if (i + 1 < argc) {
+            if (strcmp(argv[i], "-d") == 0) {
+                strcpy(dstip_c, argv[i + 1]);
+            } else if (!strcmp(argv[i], "-s")) {
+                strcpy(myipaddr_c, argv[i + 1]);
+            }
+        }
     srand(time(NULL));
     /**
      * create the raw socket
@@ -647,8 +657,8 @@ int main(int argc, char *argv[]) {
 
     struct ifreq req;  // network interface address
 
-    // strncpy(req.ifr_name, "ens33", IFNAMSIZ);  // the network card name
-    // on wsl:
+    // strncpy(req.ifr_name, "ens33", IFNAMSIZ);  // the network card
+    // name on wsl:
     strncpy(req.ifr_name, "eth0", IFNAMSIZ);  // the network card name
     if (ioctl(sock_raw_fd, SIOCGIFHWADDR, &req) == 0) {
         memcpy(my_mac, &req.ifr_addr.sa_data, sizeof(my_mac));
@@ -679,7 +689,6 @@ int main(int argc, char *argv[]) {
     }
     // init ip config
 
-    char dstip_c[] = "172.17.0.5";
     dstip = ipstr2addr(dstip_c);
     srcip = ipstr2addr(myipaddr_c);
 
