@@ -1,0 +1,4 @@
+root@pc1:$make client1run
+root@pc2:$make client2run
+root@pc3:$make router1run
+root@pc4:$make router2run

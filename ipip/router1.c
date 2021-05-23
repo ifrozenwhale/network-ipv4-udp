@@ -67,7 +67,8 @@ void recv_data();
 void send_thread();  // 发线程
 void recv_thread();  // 发线程
 
-int read_from_datalink_layer(char packet[], int nbyte);  // 从数据链路层读
+int read_from_datalink_layer(char packet[], int nbyte,
+                             mac_addr dmac);  // 从数据链路层读
 int frame_crc_check(uint cas_rec, char buffer_in[], int nbyte);  // Frame check
 
 /**
@@ -530,7 +531,7 @@ void unpack_ipip_tunnal(int nbyte, char *packet, struct myiphdr *iniphdr,
  * @param nbyte 字节数
  * @return -1表示IP头校验失败
  */
-int read_from_datalink_layer(char packet[], int nbyte) {
+int read_from_datalink_layer(char packet[], int nbyte, mac_addr dmac) {
     struct myiphdr iniphdr;
     ipaddr inipaddr;
     memcpy(&iniphdr, packet, IP_HDR_LEN);
@@ -563,7 +564,7 @@ int read_from_datalink_layer(char packet[], int nbyte) {
 
     // read_from_network_layer(nbyte, packet, &iniphdr, frame_index);
     ushort hs_frag_off = ntohs(iniphdr.frag_off);
-    printf("hs_frag_off: %x\n", hs_frag_off);
+    // printf("hs_frag_off: %x\n", hs_frag_off);
     int dont_frag = hs_frag_off & 0x4000;
 
     /**
@@ -578,10 +579,22 @@ int read_from_datalink_layer(char packet[], int nbyte) {
      * 文后，进行隧道解封装。并将解封装后的报文交给IPv6协议栈处理。
      */
 
-    if (iniphdr.version == 5) {
+    // printf("mac equal: %d\n", mac_equal(my_mac, dmac));
+    // printf("dstip %x left_net_ip: %x\n", iniphdr.daddr,
+    //        (ipstr2addr(right_net_ip) & ipstr2addr(right_net_mask)));
+    if (iniphdr.version == 5 ||
+        mac_equal(my_mac, dmac) &&
+            ipstr2addr(right_net_ip) ==
+                (iniphdr.daddr & ipstr2addr(right_net_mask)) &&
+            ipstr2addr(left_net_ip) ==
+                (iniphdr.saddr & ipstr2addr(left_net_mask))) {
         // tunnel
         make_ipip_tunnel(MY_IP_PROTOCAL, hs_tot_len, packet, dont_frag);
-    } else {
+    } else if (iniphdr.version == 4 && mac_equal(my_mac, dmac) &&
+               ipstr2addr(right_net_ip) ==
+                   (iniphdr.saddr & ipstr2addr(right_net_mask)) &&
+               ipstr2addr(left_net_ip) ==
+                   (iniphdr.daddr & ipstr2addr(left_net_mask))) {
         // 如果是ipv4，进行解包成ipv6，这里不做双协议栈，只做ipv6
         hs_tot_len = ntohs(iniphdr.tot_len);
         if ((hs_frag_off & 0x2000) || hs_frag_off) {
@@ -594,8 +607,8 @@ int read_from_datalink_layer(char packet[], int nbyte) {
 
             ushort addroff = 8 * (hs_frag_off & 0x1FFF);
             int isfirst = !islast && !addroff;
-            printf("fragoff: %x, hs_frag_off: %x islast %x addroff %x\n",
-                   iniphdr.frag_off, hs_frag_off, islast, addroff);
+            // printf("fragoff: %x, hs_frag_off: %x islast %x addroff %x\n",
+            //        iniphdr.frag_off, hs_frag_off, islast, addroff);
             if (isfirst) {
                 printf("\n(first fragment)\n");
                 printf("----------------------------------------------\n");
@@ -709,7 +722,7 @@ void recv_data() {
         memcpy(packet, &buffer_in[MAC_HDR_LEN],
                nbyte - MAC_FCS_LEN - MAC_HDR_LEN);
 
-        read_from_datalink_layer(packet, nbyte);
+        read_from_datalink_layer(packet, nbyte, dst_mac);
     }
 }
 /**
@@ -773,11 +786,6 @@ int main(int argc, char *argv[]) {
 
     // 启动多线程
     pthread_t send_id, recv_id;
-    // // 发数据线程
-    // if (pthread_create(&send_id, NULL, (void *)send_thread, NULL) != 0) {
-    //     printf("Create pthread error!\n");
-    //     exit(1);
-    // }
     // 读数据线程
     if (pthread_create(&recv_id, NULL, (void *)recv_thread, NULL) != 0) {
         printf("Create pthread error!\n");

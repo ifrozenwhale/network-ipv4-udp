@@ -6,10 +6,6 @@ client2run: client2.c utils.c # 编译详细输出内容的程序，并运行
 	gcc -c utils.c
 	gcc utils.o client2.c -o client2 -lpthread
 	sudo ./client2
-chatrun: chat.c utils.c # 编译用于测试聊天的程序，并运行
-	gcc -c utils.c
-	gcc utils.o  chat.c -o chat -lpthread
-	sudo ./chat 
 router1run: router1.c utils.c
 	gcc -c utils.c
 	gcc utils.o  router1.c -o router1 -lpthread
