@@ -1,5 +1,6 @@
 # 程序说明
 本 README 针对 [/basic](./basic) 目录下，在Linux上使用C语言在数据链路层上通信，实现IPv4和UDP协议以及应用层封装。
+IPIP 详情见 [tunnel](./ipip)
 ## 文件说明
 
 文件目录结构如下
